@@ -1,75 +1,157 @@
 class Game
+    POSSIBLE_LETTERS = ("a".."z").to_a
+    MAX_WRONG_GUESSES = 10
+  
     def initialize
-        @word_to_guess = filtered_words.sample
-        @guesses_remaining = 10
+      @word_to_guess = filtered_words.sample
+      @guesses_remaining = MAX_WRONG_GUESSES
+      @guessed_letters = []
+      @wrong_guesses = []
+      @attempted_words = []
     end
 
+    def start_game
+      until game_over?
+        display_status
+        enter_guess
+      end
+  
+      conclude_game
+    end
+  
+    private
+  
     def filtered_words
         file_path = "google-10000-english-no-swears.txt"
-        words = File.readlines(file_path)
+        words = File.readlines(file_path).map { |line| line.chomp.downcase.strip }
         filtered_words = words.filter {|word| word.length.between?(5,12)}
         filtered_words
     end
+  
+    def display_status
+      puts "\nGuesses remaining: #{@guesses_remaining}"
+      puts "Guessed letters: #{@guessed_letters.join(", ")}"
+      puts "Non-Guessed letters: #{@wrong_guesses.join(", ")}"
+      puts "Attempted words: #{@attempted_words.join(", ")}"
+      Feedback.give_feedback(@guessed_letters, @word_to_guess)
+    end
+  
+    def enter_guess
+        print "\nYour guess (letter or word), or type 'save' to save your game: "
+        guess = gets.chomp.downcase.strip
+      
+        if guess == "save"
+          save_game
+          puts 'Game saved successfully. Exiting game...'
+          exit
+        end
+      
+        until valid_guess?(guess) || guess == "save"
+          print "Invalid guess. Try again: "
+          guess = gets.chomp.downcase.strip
+        end
+      
+        process_guess(guess) unless guess == "save"
+    end
 
-    def make_a_guess(word_to_guess)
-        guessed_letters = []
-        non_guessed_letters = []
-        attempted_words = []
+    def save_game
+        Dir.mkdir('saves') unless Dir.exist?('saves')
+        filename = "saves/saved_game_#{Time.now.strftime('%Y-%m-%d_%H-%M-%S')}.dat"
+        File.open(filename, 'wb') do |file|
+          file.write(Marshal.dump(self))
+        end
+    end
 
-        possible_letters = ("a".."z").to_a
-        print "Welcome to Hangman. Can you guess the word? Make your guess: "
-        guess = gets.chomp().downcase
-        if guess.length == 0
-            until guess.length >= 1
-                print "Please, enter a valid guess. No guess is not a guess: "
-                guess = gets.chomp().downcase
-            end
-        elsif guess.length == 1
-            while guessed_letters.include?(guess) || non_guessed_letters.include?(guess)
-                print "You already chose that letter. Select another one, or make a complete guess: "
-                guess = gets.chomp().downcase
-            end
-            until possible_letters.include?(guess)
-                print "Invalid letter. Select a valid letter:"
-                guess = gets.chomp().downcase
-            end
-            if word_to_guess.include?(guess) ? guessed_letters << guess : non_guessed_letters << guess
-            @guesses_remaining -= 1
+    def self.load_game
+        unless Dir.exist?('saves')
+          puts 'No saved games found.'
+          return nil
+        end
+      
+        saved_games = Dir.glob('saves/*').select { |filename| File.file?(filename) }
+        if saved_games.empty?
+          puts 'No saved games found.'
+          return nil
+        end
+      
+        puts "Select a saved game to load:"
+        saved_games.each_with_index do |game, index|
+          puts "#{index + 1}: #{game}"
+        end
+        choice = gets.chomp.to_i
+        filename = saved_games[choice - 1]
+      
+        content = File.read(filename)
+        loaded_game = Marshal.load(content)
+        File.delete(filename) # Optionally delete the save file after loading
+        loaded_game
+      end
+      
+  
+    def valid_guess?(guess)
+      return false if guess.empty?
+      return true if guess.length == 1 && POSSIBLE_LETTERS.include?(guess) && !@guessed_letters.include?(guess) && !@wrong_guesses.include?(guess)
+      return true if guess.length > 1 && !@attempted_words.include?(guess)
+      false
+    end
+  
+    def process_guess(guess)
+      if guess.length == 1
+        if @word_to_guess.include?(guess)
+          @guessed_letters << guess
         else
-            if guess == word_to_guess
-                puts "Correct! You guessed the word, #{word_to_guess}"
-                return
-            else
-                while attempted_words.include?(guess)
-                    print "You already attempted that word. Select another one, or make a letter guess: "
-                    guess = gets.chomp().downcase
-                end
-                attempted_words << guess
-                @guesses_remaining -= 2
-            end
-
-            puts "Guesses remaining: #{guesses_remaining}"
-            if guessed_letters.length >=1
-                puts "Guessed letters: #{guessed_letters}.join(", ")"
-            end
-            if non_guessed_letters.length >= 1
-                puts "Non-Guessed letters: #{non_guessed_letters}.join(", ")"
-            end
-            if attempted_words.length >= 1
-                puts "Attempted words: #{attempted_words}.join(", ")"
-            end
+          @wrong_guesses << guess
+          @guesses_remaining -= 1
         end
+      else
+        @attempted_words << guess
+        if guess == @word_to_guess
+          @guessed_letters = @word_to_guess.chars.uniq
+        else
+          @guesses_remaining -= 2
+        end
+      end
     end
-end
-
-class Feedback
+  
+    def game_over?
+      @guesses_remaining <= 0 || word_guessed?
+    end
+  
+    def word_guessed?
+      @word_to_guess.chars.all? { |letter| @guessed_letters.include?(letter) }
+    end
+  
+    def conclude_game
+      if word_guessed?
+        puts "\nCongratulations! You've guessed the word: #{@word_to_guess}"
+      else
+        puts "\nOut of guesses. The word was: #{@word_to_guess}. Better luck next time!"
+      end
+    end
+  end
+  
+  class Feedback
     def self.give_feedback(guessed_letters, word_to_guess)
-        word_to_guess.each do |character|
-            if guessed_letters.include?(character)
-                print character
-            else
-                print "-"
-            end
-        end
+      feedback = word_to_guess.chars.map { |char| guessed_letters.include?(char) ? char : "-" }.join
+      puts "\nWord: #{feedback}"
     end
+  end
+  
+puts "Welcome to Hangman!"
+choice = nil
+
+until choice == 1 || choice == 2
+  puts "1. Start a new game"
+  puts "2. Load a saved game"
+  choice = gets.chomp.to_i
+
+  if choice == 1
+    game = Game.new
+    game.start_game
+  elsif choice == 2
+    game = Game.load_game
+    game.start_game unless game.nil?
+  else
+    puts "Invalid option. Please enter 1 or 2."
+  end
 end
